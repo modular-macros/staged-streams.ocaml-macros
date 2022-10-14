@@ -1,0 +1,5 @@
+version = "dev"
+description = "The Strymonas staged streams library"
+archive(byte) = "stream_s.cma"
+archive(native) = "stream_s.cmxa"
+exists_if = "stream_s.cma"

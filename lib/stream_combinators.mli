@@ -3,19 +3,19 @@
 type 'a stream
 
 (* Producers *)
-val of_arr : 'a array code -> 'a stream
-val unfold : ('z code -> ('a * 'z) option code) -> 'z code -> 'a stream
+macro of_arr : 'a array expr -> 'a stream
+macro unfold : ('z expr -> ('a * 'z) option expr) -> 'z expr -> 'a stream
 
 (* Consumer *)
-val fold : ('z code -> 'a code -> 'z code) -> 'z code -> 'a stream -> 'z code
-val fold_tupled : ('z1 code -> 'a code -> 'z1 code) -> 'z1 code ->
-                  ('z2 code -> 'a code -> 'z2 code) -> 'z2 code ->
-                  'a stream -> ('z1 * 'z2) code
+macro fold : ('z expr -> 'a expr -> 'z expr) -> 'z expr -> 'a stream -> 'z expr
+macro fold_tupled : ('z1 expr -> 'a expr -> 'z1 expr) -> 'z1 expr ->
+                    ('z2 expr -> 'a expr -> 'z2 expr) -> 'z2 expr ->
+                    'a stream -> ('z1 * 'z2) expr
 
 (* Transformers *)
-val map      : ('a code -> 'b code) -> 'a stream -> 'b stream
-val filter   : ('a code -> bool code) -> 'a stream -> 'a stream
-val take     : int code -> 'a stream -> 'a stream
-val flat_map : ('a code -> 'b stream) -> 'a stream -> 'b stream
-val zip_with : ('a code -> 'b code -> 'c code) ->
-               ('a stream -> 'b stream -> 'c stream)
+macro map      : ('a expr -> 'b expr) -> 'a stream -> 'b stream
+macro filter   : ('a expr -> bool expr) -> 'a stream -> 'a stream
+macro take     : int expr -> 'a stream -> 'a stream
+macro flat_map : ('a expr -> 'b stream) -> 'a stream -> 'b stream
+macro zip_with : ('a expr -> 'b expr -> 'c expr) ->
+                 ('a stream -> 'b stream -> 'c stream)

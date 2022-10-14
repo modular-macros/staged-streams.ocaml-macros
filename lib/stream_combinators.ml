@@ -1,7 +1,7 @@
 (* This is a pull stream but it is used pretty much like a push stream.
    'a is the type of the eventually produced value,
-   's is the overall state. 'a is not necessarily the code type!
-   It could be a tuple of code types, for example.
+   's is the overall state. 'a is not necessarily the expr type!
+   It could be a tuple of expr types, for example.
 
    Stream producer is always linear: in the non-terminated state,
    when it updates the stream state it always produces a value.
@@ -22,14 +22,14 @@
    to thread it through in the generator (although we may).
 
    A note on a possible alternative: turn the transformer of a nested
-   stream in CPS.: 'b -> ('a stream -> unit code) -> unit code.
+   stream in CPS.: 'b -> ('a stream -> unit expr) -> unit expr.
    Add an alternative for the Singleton producer. Then filter is implemented
    as a Nested that inserts the if-statement test and calls the continuation
    with the Singleto stream.
 
   XXX Generalize take_raw along the lines of fold_raw (need to pass
-  z and the function to update z (with the return type unit code)
-  and the function to build the term condition (bool code)). Perhaps
+  z and the function to update z (with the return type unit expr)
+  and the function to build the term condition (bool expr)). Perhaps
   z can be included into the closure. Then we can use the same take_raw
   to derive both take and takeWhile.
 
@@ -48,9 +48,11 @@
  *)
 
 
+static (@@) = ~Pervasives.(@@)
+
 type card_t = AtMost1 | Many
 
-    (* We need the step function in CPS with the code answer type,
+    (* We need the step function in CPS with the expr answer type,
        so we can do let-insertion
      *)
 
@@ -58,104 +60,104 @@ type ('a,'s) producer_t =
   | For    of ('a,'s) producer_for
   | Unfold of ('a,'s) producer_unfold
  and ('a,'s) producer_for =
-    {upb:   's -> int code;               (* exact upper bound *)
-     index: 's -> int code -> ('a -> unit code) -> unit code}
+    {upb:   's -> int expr;               (* exact upper bound *)
+     index: 's -> int expr -> ('a -> unit expr) -> unit expr}
  and ('a,'s) producer_unfold =
-    {term: 's -> bool code;                     (* when false, stop *)
+    {term: 's -> bool expr;                     (* when false, stop *)
      card: card_t;
-     step: 's -> ('a -> unit code) -> unit code}
- and 's init = {init : 'w. ('s -> 'w code) -> 'w code}
+     step: 's -> ('a -> unit expr) -> unit expr}
+ and 's init = {init : 'w. ('s -> 'w expr) -> 'w expr}
  and 'a producer =
     Prod : 's init * ('a,'s) producer_t -> 'a producer
  and _ st_stream =
   | Linear : 'a producer -> 'a st_stream
   | Nested : 'b producer * ('b -> 'a st_stream)-> 'a st_stream
- and 'a stream = 'a code st_stream
+ and 'a stream = 'a expr st_stream
 
 
 
 (* Change the For producer to the general producer *)
-let for_unfold : 'a producer -> 'a producer =  function
+macro for_unfold : 'a producer -> 'a producer =  function
   | Prod ({init},For {upb;index}) ->
     Prod ({init = fun k -> init @@ fun s0 ->
-            .<let i = ref 0 in .~(k (.<i>.,s0))>.},
-          Unfold {term = (fun (i,s0) -> .<!(.~i) <= .~(upb s0)>.);
+            <<let i = ref 0 in $(k (<<i>>,s0))>>},
+          Unfold {term = (fun (i,s0) -> << !($i) <= $(upb s0)>>);
                   card = Many;
                   step = (fun (i,s0) k ->
-                           index s0 .<! (.~i)>. @@ fun a ->
-                                        .<(incr .~i; .~(k a))>.)})
+                           index s0 << ! ($i) >> @@ fun a ->
+                                        <<(incr $i; $(k a))>>)})
   | x -> x
 
 
-let of_arr : 'a array code -> 'a stream = fun arr ->
+macro of_arr : 'a array expr -> 'a stream = fun arr ->
  let prod =
-   Prod ({init = fun k -> .<let arr = .~arr in .~(k .<arr>.)>.},
-         For {upb   = (fun arr -> .<Array.length .~arr - 1>.);
+   Prod ({init = fun k -> <<let arr = $arr in $(k <<arr>>)>>},
+         For {upb   = (fun arr -> <<Array.length $arr - 1>>);
               index = (fun arr i k ->
-                         .<let el = (.~arr).(.~i) in .~(k .<el>.)>.)})
+                         <<let el = ($arr).($i) in $(k <<el>>)>>)})
  in
  Linear prod
 ;;
 
 
 (* This interface is good for functional streams but not for loops *)
-let unfold : ('z code -> ('a * 'z) option code) -> 'z code -> 'a stream
+macro unfold : ('z expr -> ('a * 'z) option expr) -> 'z expr -> 'a stream
   = fun p z ->
   let prod =
    Prod ({init = fun k ->
-           .<let s = ref .~(p z) in .~(k .<s>.)>.},
+           <<let s = ref $(p z) in $(k <<s>>)>>},
          Unfold {
-          term = (fun s -> .<! (.~s) <> None>.);
+          term = (fun s -> << ! ($s) <> None>>);
           card = Many;
           step = (fun (s) body ->
-	   .<match ! (.~s) with
-              Some (el,s') -> .~s := .~(p .<s'>.); .~(body .<el>.)>.)})
+	   <<match ! ($s) with
+              Some (el,s') -> $s := $(p <<s'>>); $(body <<el>>)>>)})
  in
  Linear prod
 
 
 (* Consumer. Only consumer runs the main loop -- or makes it *)
 
-let rec fold_raw : 'a. ('a -> unit code) -> 'a st_stream -> unit code
+macro rec fold_raw : 'a. ('a -> unit expr) -> 'a st_stream -> unit expr
  = fun consumer -> function
    | Linear (Prod ({init},For {upb;index})) ->
          init @@ fun sp ->
-           .<for i = 0 to .~(upb sp) do
-              .~(index sp .<i>. @@ consumer)
-             done>.
+           <<for i = 0 to $(upb sp) do
+              $(index sp <<i>> @@ consumer)
+             done>>
    | Linear (Prod ({init},Unfold {term;card=AtMost1;step})) ->
          init @@ fun sp ->
-           .<if .~(term sp) then .~(step sp @@ consumer)>.
+           <<if $(term sp) then $(step sp @@ consumer)>>
    | Linear (Prod ({init},Unfold {term;step;_})) ->
          init @@ fun sp ->
-           .<while .~(term sp) do
-             .~(step sp @@ consumer)
-           done>.
+           <<while $(term sp) do
+             $(step sp @@ consumer)
+           done>>
    | Nested (prod,nestf) ->             (* polymorphic recursion *)
          fold_raw (fun e -> fold_raw consumer @@ nestf e) (Linear prod)
 
-let fold : ('z code -> 'a code -> 'z code) -> 'z code -> 'a stream -> 'z code
+macro fold : ('z expr -> 'a expr -> 'z expr) -> 'z expr -> 'a stream -> 'z expr
  = fun f z str ->
-    .<let s = ref .~z in
-       (.~(fold_raw (fun a -> .<s := .~(f .<!s>. a)>.) str); !s)>.
+    <<let s = ref $z in
+       ($(fold_raw (fun a -> <<s := $(f << !s>> a)>>) str); !s)>>
 
-let fold_tupled : ('z1 code -> 'a code -> 'z1 code) -> 'z1 code ->
-                  ('z2 code -> 'a code -> 'z2 code) -> 'z2 code ->
-                  'a stream -> ('z1 * 'z2) code
+macro fold_tupled : ('z1 expr -> 'a expr -> 'z1 expr) -> 'z1 expr ->
+                  ('z2 expr -> 'a expr -> 'z2 expr) -> 'z2 expr ->
+                  'a stream -> ('z1 * 'z2) expr
  = fun f1 z1 f2 z2 str ->
-    .<let s1 = ref .~z1 in
-      let s2 = ref .~z2 in
-      (.~(fold_raw (fun a -> .< begin
-         s1 := .~(f1 .<!s1>. a);
-         s2 := .~(f2 .<!s2>. a)
-      end >.) str); (!s1, !s2))>.
+    <<let s1 = ref $z1 in
+      let s2 = ref $z2 in
+      ($(fold_raw (fun a -> << begin
+         s1 := $(f1 << !s1>> a);
+         s2 := $(f2 << !s2>> a)
+      end >>) str); (!s1, !s2))>>
 
 (* Transformers *)
 (* A general map, used for many things *)
-    (* We need the mapping function in CPS with the code answer type,
+    (* We need the mapping function in CPS with the expr answer type,
        so we can do let-insertion
      *)
-let rec map_raw : 'a 'b. ('a -> ('b -> unit code) -> unit code) ->
+macro rec map_raw : 'a 'b. ('a -> ('b -> unit expr) -> unit expr) ->
                   'a st_stream -> 'b st_stream =
    fun tr -> function
    | Linear (Prod (init,For ({index;_} as g))) ->
@@ -167,20 +169,20 @@ let rec map_raw : 'a 'b. ('a -> ('b -> unit code) -> unit code) ->
    | Nested (prod,nestf) ->
        Nested (prod,fun a -> map_raw tr (nestf a))
 
-let map : ('a code -> 'b code) -> 'a stream -> 'b stream =
+macro map : ('a expr -> 'b expr) -> 'a stream -> 'b stream =
    fun f str ->
-   map_raw (fun a k -> .<let t = .~(f a) in .~(k .<t>.)>.) str
+   map_raw (fun a k -> <<let t = $(f a) in $(k <<t>>)>>) str
 
-let rec flat_map_raw : ('a -> 'b st_stream) -> 'a st_stream -> 'b st_stream =
+macro rec flat_map_raw : ('a -> 'b st_stream) -> 'a st_stream -> 'b st_stream =
    fun tr -> function
    | Linear prod         -> Nested (prod,tr)
    | Nested (prod,nestf) -> Nested (prod,fun a -> flat_map_raw tr @@ nestf a)
 
-let flat_map : ('a code -> 'b stream) -> 'a stream -> 'b stream =
+macro flat_map : ('a expr -> 'b stream) -> 'a stream -> 'b stream =
   flat_map_raw
 
 (* Filter is also implemented via flat_map *)
-let filter : ('a code -> bool code) -> 'a stream -> 'a stream =
+macro filter : ('a expr -> bool expr) -> 'a stream -> 'a stream =
    fun f str ->
    let filter_stream a =
    Prod ({init = fun k -> k a},
@@ -195,10 +197,10 @@ let filter : ('a code -> bool code) -> 'a stream -> 'a stream =
    since those are always dependent and the termination check is
    redundant.
 *)
-let rec more_termination : bool code -> 'a st_stream -> 'a st_stream =
+macro rec more_termination : bool expr -> 'a st_stream -> 'a st_stream =
   let rec add_to_producer new_term = function
     | Prod (init, Unfold {card=Many;term;step}) ->
-        let term s = .<.~new_term && .~(term s)>. in
+        let term s = << $new_term && $(term s)>> in
         Prod (init, Unfold {card=Many;term;step})
     | Prod (_, Unfold {card=AtMost1;_}) as p -> p
     | p -> add_to_producer new_term (for_unfold p) in
@@ -213,24 +215,25 @@ let rec more_termination : bool code -> 'a st_stream -> 'a st_stream =
 (* The nested stream receives the same remcount reference; thus
    all streams decrement the same global count.
  *)
-let take_raw   : int code -> 'a st_stream -> 'a st_stream =
-  let add_nr : 'a. int code -> 'a producer -> (int ref code * 'a) producer =
+macro take_raw   : int expr -> 'a st_stream -> 'a st_stream =
+  let add_nr : 'a. int expr -> 'a producer -> (int ref expr * 'a) producer =
     fun n -> function Prod ({init},Unfold {term;card;step}) ->
       let init = fun k ->
-        init @@ fun s -> .<let nr = ref .~n in .~(k (.<nr>.,s))>.
+        init @@ fun s -> <<let nr = ref $n in $(k (<<nr>>,s))>>
        and prod =
          Unfold {
          card;
          (* For filter, we assume that is a dependent stream... *)
          term = (fun (nr,s) ->
-                 if card = Many then .<! .~nr > 0 && .~(term s)>. else term s);
+                 let (=) = ~Pervasives.(=) in
+                 if card = Many then << ! $nr > 0 && $(term s)>> else term s);
          step = (fun (nr,s) k -> step s (fun el -> k (nr,el)))}
       in Prod ({init},prod)
-  and update_nr = fun (nr,el) k -> .<(decr .~nr; .~(k el))>.
+  and update_nr = fun (nr,el) k -> <<(decr $nr; $(k el))>>
   in
   fun n -> function
     | Linear (Prod (init, For {upb;index})) ->
-        let upb s = .<min (.~n-1) .~(upb s)>. in
+        let upb s = <<min ($n-1) $(upb s)>> in
         Linear (Prod (init, For {upb;index}))
     | Linear p ->
        map_raw update_nr @@ Linear (add_nr n p)
@@ -238,9 +241,9 @@ let take_raw   : int code -> 'a st_stream -> 'a st_stream =
         Nested (add_nr n (for_unfold p),
                 fun (nr,a) ->
                   map_raw (fun a -> update_nr (nr,a)) @@
-                  more_termination .<! .~nr > 0>. (nestf a))
+                  more_termination << ! $nr > 0>> (nestf a))
 
-let take : int code -> 'a stream -> 'a stream = take_raw
+macro take : int expr -> 'a stream -> 'a stream = take_raw
 
 (* Zipping *)
 (* When zipping two streams with the step function step1 and step2
@@ -271,14 +274,14 @@ let take : int code -> 'a stream -> 'a stream = take_raw
    still has some elements, which should not be lost!
 *)
 
-let rec zip_producer: 'a producer -> 'b producer -> ('a * 'b) producer =
+macro rec zip_producer: 'a producer -> 'b producer -> ('a * 'b) producer =
    fun p1 p2 ->
    match (p1,p2) with
    | (Prod (i1,For f1), Prod (i2,For f2)) ->
    Prod (
    {init = fun k -> i1.init @@ fun s1 -> i2.init @@ fun s2 -> k (s1,s2)},
    For {
-   upb   = (fun (s1,s2)   -> .<min .~(f1.upb s1) .~(f2.upb s2)>.);
+   upb   = (fun (s1,s2)   -> <<min $(f1.upb s1) $(f2.upb s2)>>);
    index = (fun (s1,s2) i k ->
              f1.index s1 i @@ fun e1 -> f2.index s2 i @@ fun e2 ->
                k (e1,e2))})
@@ -289,7 +292,7 @@ let rec zip_producer: 'a producer -> 'b producer -> ('a * 'b) producer =
    {init = fun k -> i1.init @@ fun s1 -> i2.init @@ fun s2 -> k (s1,s2)},
    Unfold {
    card = Many;
-   term = (fun (s1,s2)   -> .<.~(f1.term s1) && .~(f2.term s2)>.);
+   term = (fun (s1,s2)   -> << $(f1.term s1) && $(f2.term s2)>>);
    step = (fun (s1,s2) k ->
             f1.step s1 @@ fun e1 -> f2.step s2 @@ fun e2 ->
                k (e1,e2))})
@@ -306,22 +309,22 @@ let rec zip_producer: 'a producer -> 'b producer -> ('a * 'b) producer =
    The termination check may take time and is not necessarily
    idempotent.
 *)
-let push_linear : 'a producer -> ('b producer * ('b -> 'c st_stream)) ->
+macro push_linear : 'a producer -> ('b producer * ('b -> 'c st_stream)) ->
   ('a * 'c) st_stream =
   fun (Prod ({init=init1},Unfold {card=Many;term=term1;step=step1}))
       (Prod ({init=init2},Unfold p2), nestf2) ->
   let init = fun k -> init1 @@ fun s1 -> init2 @@ fun s2 ->
-    .<let term1r = ref .~(term1 s1) in .~(k (.<term1r>.,s1,s2))>.
+    <<let term1r = ref $(term1 s1) in $(k (<<term1r>>,s1,s2))>>
   and prod = Unfold {
     card = Many;
-    term = (fun (term1r,s1,s2)   -> .<! .~term1r && .~(p2.term s2)>.);
+    term = (fun (term1r,s1,s2)   -> << ! $term1r && $(p2.term s2)>>);
     step = (fun (term1r,s1,s2) k -> p2.step s2 (fun b -> k (term1r,s1,b)))}
   in Nested (Prod ({init},prod),
       fun (term1r,s1,b) ->
       map_raw (fun c k ->
         step1 s1 @@ fun a ->
-          .<(.~term1r := .~(term1 s1); .~(k (a,c)))>.) @@
-      more_termination .<! .~term1r>. (nestf2 b))
+          <<($term1r := $(term1 s1); $(k (a,c)))>>) @@
+      more_termination << ! $term1r>> (nestf2 b))
 
 
 (* Make a stream linear.
@@ -348,15 +351,15 @@ let push_linear : 'a producer -> ('b producer * ('b -> 'c st_stream)) ->
    optimization is difficult or unreliable.
 *)
 
-let rec make_linear : 'a st_stream -> 'a producer = function
+macro rec make_linear : 'a st_stream -> 'a producer = function
   | Linear prod -> prod
   | Nested (Prod (init, For _) as p, nestf) ->
       make_linear (Nested (for_unfold p, nestf))
   | Nested (Prod ({init},Unfold {card=Many;term;step}),nestf) ->
       (* Make the adv function for the nested stream *)
       let rec make_adv :
-          'a. (unit -> unit) option ref code ->
-              ('a -> unit code) -> 'a st_stream -> unit code =
+          'a. (unit -> unit) option ref expr ->
+              ('a -> unit expr) -> 'a st_stream -> unit expr =
        (* Upon return:
           - ncurr is set to the current stream value and nadv stack
             is possibly updated with the function to call to get next.
@@ -366,19 +369,19 @@ let rec make_linear : 'a st_stream -> 'a producer = function
          | Linear prod -> begin match for_unfold prod with
              (* Filter *)
            | Prod ({init},Unfold {card=AtMost1; term; step}) ->
-               init @@ fun s -> .<if .~(term s) then .~(step s k)>.
+               init @@ fun s -> <<if $(term s) then $(step s k)>>
              (* Linear nested component *)
              (* XXX We can optimize here for the 1st-level stream:
                 where we know that old_adv in None
              *)
            | Prod ({init},Unfold {term; step; _}) ->
                init @@ fun s ->
-                 .<let old_adv = ! .~nadv in
+                 <<let old_adv = ! $nadv in
                    let adv1 () =
-                     if .~(term s) then .~(step s k)
-                     else .~nadv := old_adv
+                     if $(term s) then $(step s k)
+                     else $nadv := old_adv
                    in
-                   .~nadv := Some adv1; adv1 ()>.
+                   $nadv := Some adv1; adv1 ()>>
            end
          | Nested (prod,nestf) ->
              make_adv nadv (fun e -> make_adv nadv k @@ nestf e) @@
@@ -386,7 +389,7 @@ let rec make_linear : 'a st_stream -> 'a producer = function
       in
       let init k =
         init @@ fun s0 ->
-        .<let curr = ref None in      (* Current element, if any *)
+        <<let curr = ref None in      (* Current element, if any *)
           let nadv = ref None in      (* The step of the innermost stream *)
            (* This is the adv for the outer stream *)
            (* It really tries to obtain the current element
@@ -395,23 +398,23 @@ let rec make_linear : 'a st_stream -> 'a producer = function
            *)
            let adv () =
              curr := None;
-             while !curr = None && (!nadv <> None || .~(term s0)) do
+             while !curr = None && (!nadv <> None || $(term s0)) do
                match !nadv with
                | Some adv -> adv ()
                | None ->
-                   .~(step s0 @@ fun e0 ->
-                     make_adv .<nadv>. (fun e -> .<curr := Some .~e>.) @@
+                   $(step s0 @@ fun e0 ->
+                     make_adv <<nadv>> (fun e -> <<curr := Some $e>>) @@
                      nestf e0)
              done
-           in adv (); .~(k (.<curr>.,.<adv>.))>.
-        and term (curr,_) = .<! .~curr <> None>.
+           in adv (); $(k (<<curr>>,<<adv>>))>>
+        and term (curr,_) = << ! $curr <> None>>
         and step (curr,adv) k =
-          .<match ! .~curr with Some el -> .~adv (); .~(k .<el>.)>.
+          <<match ! $curr with Some el -> $adv (); $(k <<el>>)>>
   in Prod ({init},Unfold{card=Many;term;step})
 
 
 (* The dispatcher for zip *)
-let rec zip_raw: 'a st_stream -> 'b st_stream -> ('a * 'b) st_stream =
+macro rec zip_raw: 'a st_stream -> 'b st_stream -> ('a * 'b) st_stream =
    fun str1 str2 ->
    match (str1,str2) with
    | (Linear prod1, Linear prod2) -> Linear (zip_producer prod1 prod2)
@@ -427,7 +430,7 @@ let rec zip_raw: 'a st_stream -> 'b st_stream -> ('a * 'b) st_stream =
    | (str1,str2) -> zip_raw (Linear (make_linear str1)) str2
 
 
-let zip_with   : ('a code   -> 'b code -> 'c code) ->
+macro zip_with   : ('a expr   -> 'b expr -> 'c expr) ->
 		 ('a stream -> 'b stream -> 'c stream) =
  fun f str1 str2 ->
    map_raw (fun (x,y) k -> k (f x y)) @@
