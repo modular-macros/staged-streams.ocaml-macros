@@ -21,10 +21,6 @@ Flag all
   Description:      Build and install everything
   Default:          false
 
-Flag benchmarks
-  Description:	     Build and run benchmarks
-  Default:          false
-
 # +-------------------------------------------------------------------+
 # | Libraries                                                         |
 # +-------------------------------------------------------------------+
@@ -40,20 +36,6 @@ Library stream_s
 # | Tests                                                             |
 # +-------------------------------------------------------------------+
 
-Executable run_benchmarks
-  Path:             benchmarks
-  MainIs:           benchmark_stream.ml
-  Build$:           flag(benchmarks)
-  Install:          false
-  BuildDepends:     oml, staged-streams
-
-Executable run_batteries_benchmarks
-  Path:             benchmarks
-  MainIs:           benchmark_batteries.ml
-  Build$:           flag(benchmarks)
-  Install:          false
-  BuildDepends:     batteries (= 2.3)
-
 Executable test_stream
   Path:             test
   MainIs:           test_stream.ml
@@ -65,17 +47,3 @@ Test stream
   Command: $test_stream
   TestTools: test_stream
   Run$: flag(tests)
-
-# Test benchmark_streams
-#  Command: $run_benchmarks
-#  TestTools: run_benchmarks
-#  Run$: flag(benchmarks)
-
-# Test benchmark_batteries
-#  Command: $run_batteries_benchmarks
-#  TestTools: run_batteries_benchmarks
-#  Run$: flag(benchmarks)
-
-# +-------------------------------------------------------------------+
-# | Misc                                                              |
-# +-------------------------------------------------------------------+

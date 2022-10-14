@@ -18,8 +18,6 @@ build: [
 install:[make "install"]
 remove: ["ocamlfind" "remove" "staged-streams"]
 depends: [
-   "batteries" {test & = "2.3.0"}
-   "oml" {build}
    "ocamlfind" {build}
    "oasis" {build}
    "ounit" {build}
